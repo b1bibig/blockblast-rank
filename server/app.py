@@ -1,12 +1,13 @@
 from dataclasses import dataclass
 from datetime import datetime
+from html import escape
 from io import BytesIO
 from typing import Dict, Tuple
 
 from flask import Flask, Response, jsonify
 from PIL import Image, ImageDraw, ImageFont
 
-from hash_utils import KST, is_valid_hash
+from server.hash_utils import KST, is_valid_hash
 
 app = Flask(__name__)
 
@@ -28,6 +29,37 @@ def _load_font(size: int) -> ImageFont.ImageFont:
         return ImageFont.load_default()
 
 
+def _render_text_svg(
+    text: str,
+    *,
+    size: Tuple[int, int],
+    background_color: Tuple[int, int, int],
+    text_color: Tuple[int, int, int],
+    font_size: int,
+    multiline: bool,
+) -> bytes:
+    width, height = size
+    font_color = f"rgb{text_color}"
+    background = f"rgb{background_color}"
+    safe_lines = [escape(line) for line in text.splitlines()] if multiline else [escape(text)]
+    line_height = font_size + 6
+    total_height = line_height * len(safe_lines)
+    start_y = (height - total_height) / 2 + font_size
+    tspans = "\n".join(
+        f'<tspan x="{width / 2}" y="{start_y + idx * line_height}">{line}</tspan>'
+        for idx, line in enumerate(safe_lines)
+    )
+    svg = f"""<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}">
+  <rect width="100%" height="100%" fill="{background}" />
+  <text x="{width / 2}" y="{height / 2}" fill="{font_color}" font-size="{font_size}"
+        font-family="Noto Sans KR, Apple SD Gothic Neo, Malgun Gothic, Arial, sans-serif"
+        text-anchor="middle" dominant-baseline="middle">
+    {tspans}
+  </text>
+</svg>"""
+    return svg.encode("utf-8")
+
+
 def _render_text_image(
     text: str,
     *,
@@ -35,19 +67,45 @@ def _render_text_image(
     background_color: Tuple[int, int, int] = (245, 245, 245),
     text_color: Tuple[int, int, int] = (33, 33, 33),
     font_size: int = 24,
-) -> bytes:
+    multiline: bool = False,
+) -> tuple[bytes, str]:
+    if any(ord(ch) > 127 for ch in text):
+        return (
+            _render_text_svg(
+                text,
+                size=size,
+                background_color=background_color,
+                text_color=text_color,
+                font_size=font_size,
+                multiline=multiline,
+            ),
+            "image/svg+xml",
+        )
     image = Image.new("RGB", size, background_color)
     draw = ImageDraw.Draw(image)
     font = _load_font(font_size)
-    text_bbox = draw.textbbox((0, 0), text, font=font)
+    if multiline:
+        text_bbox = draw.multiline_textbbox((0, 0), text, font=font, spacing=6, align="center")
+    else:
+        text_bbox = draw.textbbox((0, 0), text, font=font)
     text_width = text_bbox[2] - text_bbox[0]
     text_height = text_bbox[3] - text_bbox[1]
     x = (size[0] - text_width) // 2
     y = (size[1] - text_height) // 2
-    draw.text((x, y), text, fill=text_color, font=font)
+    if multiline:
+        draw.multiline_text(
+            (x, y),
+            text,
+            fill=text_color,
+            font=font,
+            spacing=6,
+            align="center",
+        )
+    else:
+        draw.text((x, y), text, fill=text_color, font=font)
     buffer = BytesIO()
     image.save(buffer, format="PNG")
-    return buffer.getvalue()
+    return buffer.getvalue(), "image/png"
 
 
 @app.get("/<username>/<int:score>/<hash_value>")
@@ -56,16 +114,39 @@ def log_score(username: str, score: int, hash_value: str):
     now = datetime.now(KST)
 
     if not is_valid_hash(username, score, hash_value, salt, now=now):
-        image_bytes = _render_text_image("해시 검증이 틀렸습니다")
-        return Response(image_bytes, status=403, mimetype="image/png")
+        image_bytes, mimetype = _render_text_image("해시 검증이 틀렸습니다")
+        return Response(image_bytes, mimetype=mimetype)
 
     current = SCORES.get(username)
     if current is None or score > current.score:
         SCORES[username] = ScoreEntry(username=username, score=score, updated_at=now)
 
     message = f"{username}:점수 {score}점!"
-    image_bytes = _render_text_image(message)
-    return Response(image_bytes, mimetype="image/png")
+    image_bytes, mimetype = _render_text_image(message)
+    return Response(image_bytes, mimetype=mimetype)
+
+
+@app.get("/ranking")
+def ranking():
+    entries = sorted(SCORES.values(), key=lambda entry: entry.score, reverse=True)
+    if not entries:
+        image_bytes, mimetype = _render_text_image(
+            "아직 등록된 점수가 없습니다.",
+            size=(520, 180),
+        )
+        return Response(image_bytes, mimetype=mimetype)
+
+    lines = ["랭킹 TOP 10"]
+    for idx, entry in enumerate(entries[:10], start=1):
+        lines.append(f"{idx}. {entry.username} - {entry.score}점")
+    ranking_text = "\n".join(lines)
+    image_bytes, mimetype = _render_text_image(
+        ranking_text,
+        size=(520, 320),
+        font_size=20,
+        multiline=True,
+    )
+    return Response(image_bytes, mimetype=mimetype)
 
 
 @app.get("/health")
