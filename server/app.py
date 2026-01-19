@@ -6,7 +6,7 @@ from typing import Dict, Tuple
 from flask import Flask, Response, jsonify
 from PIL import Image, ImageDraw, ImageFont
 
-from hash_utils import KST, is_valid_hash
+from server.hash_utils import KST, is_valid_hash
 
 app = Flask(__name__)
 
