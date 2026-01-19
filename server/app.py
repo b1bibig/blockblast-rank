@@ -108,45 +108,61 @@ def _render_text_image(
     return buffer.getvalue(), "image/png"
 
 
+def _render_text_response(
+    text: str,
+    *,
+    size: Tuple[int, int] = (520, 140),
+    background_color: Tuple[int, int, int] = (245, 245, 245),
+    text_color: Tuple[int, int, int] = (33, 33, 33),
+    font_size: int = 24,
+    multiline: bool = False,
+) -> Response:
+    image_bytes, mimetype = _render_text_image(
+        text,
+        size=size,
+        background_color=background_color,
+        text_color=text_color,
+        font_size=font_size,
+        multiline=multiline,
+    )
+    return Response(image_bytes, mimetype=mimetype)
+
+
 @app.get("/<username>/<int:score>/<hash_value>")
 def log_score(username: str, score: int, hash_value: str):
     salt = app.config.get("HASH_SALT", "CHANGE_ME")
     now = datetime.now(KST)
 
     if not is_valid_hash(username, score, hash_value, salt, now=now):
-        image_bytes, mimetype = _render_text_image("해시 검증이 틀렸습니다")
-        return Response(image_bytes, mimetype=mimetype)
+        return _render_text_response("해시 검증이 틀렸습니다")
 
     current = SCORES.get(username)
     if current is None or score > current.score:
         SCORES[username] = ScoreEntry(username=username, score=score, updated_at=now)
 
     message = f"{username}:점수 {score}점!"
-    image_bytes, mimetype = _render_text_image(message)
-    return Response(image_bytes, mimetype=mimetype)
+    return _render_text_response(message)
 
 
 @app.get("/ranking")
 def ranking():
     entries = sorted(SCORES.values(), key=lambda entry: entry.score, reverse=True)
     if not entries:
-        image_bytes, mimetype = _render_text_image(
+        return _render_text_response(
             "아직 등록된 점수가 없습니다.",
             size=(520, 180),
         )
-        return Response(image_bytes, mimetype=mimetype)
 
     lines = ["랭킹 TOP 10"]
     for idx, entry in enumerate(entries[:10], start=1):
         lines.append(f"{idx}. {entry.username} - {entry.score}점")
     ranking_text = "\n".join(lines)
-    image_bytes, mimetype = _render_text_image(
+    return _render_text_response(
         ranking_text,
         size=(520, 320),
         font_size=20,
         multiline=True,
     )
-    return Response(image_bytes, mimetype=mimetype)
 
 
 @app.get("/health")
