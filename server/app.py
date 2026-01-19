@@ -6,7 +6,7 @@ from typing import Dict, Tuple
 from flask import Flask, Response, jsonify
 from PIL import Image, ImageDraw, ImageFont
 
-from hash_utils import KST, is_valid_hash
+from server.hash_utils import KST, is_valid_hash
 
 app = Flask(__name__)
 
@@ -35,16 +35,30 @@ def _render_text_image(
     background_color: Tuple[int, int, int] = (245, 245, 245),
     text_color: Tuple[int, int, int] = (33, 33, 33),
     font_size: int = 24,
+    multiline: bool = False,
 ) -> bytes:
     image = Image.new("RGB", size, background_color)
     draw = ImageDraw.Draw(image)
     font = _load_font(font_size)
-    text_bbox = draw.textbbox((0, 0), text, font=font)
+    if multiline:
+        text_bbox = draw.multiline_textbbox((0, 0), text, font=font, spacing=6, align="center")
+    else:
+        text_bbox = draw.textbbox((0, 0), text, font=font)
     text_width = text_bbox[2] - text_bbox[0]
     text_height = text_bbox[3] - text_bbox[1]
     x = (size[0] - text_width) // 2
     y = (size[1] - text_height) // 2
-    draw.text((x, y), text, fill=text_color, font=font)
+    if multiline:
+        draw.multiline_text(
+            (x, y),
+            text,
+            fill=text_color,
+            font=font,
+            spacing=6,
+            align="center",
+        )
+    else:
+        draw.text((x, y), text, fill=text_color, font=font)
     buffer = BytesIO()
     image.save(buffer, format="PNG")
     return buffer.getvalue()
@@ -57,7 +71,7 @@ def log_score(username: str, score: int, hash_value: str):
 
     if not is_valid_hash(username, score, hash_value, salt, now=now):
         image_bytes = _render_text_image("해시 검증이 틀렸습니다")
-        return Response(image_bytes, status=403, mimetype="image/png")
+        return Response(image_bytes, mimetype="image/png")
 
     current = SCORES.get(username)
     if current is None or score > current.score:
@@ -65,6 +79,29 @@ def log_score(username: str, score: int, hash_value: str):
 
     message = f"{username}:점수 {score}점!"
     image_bytes = _render_text_image(message)
+    return Response(image_bytes, mimetype="image/png")
+
+
+@app.get("/ranking")
+def ranking():
+    entries = sorted(SCORES.values(), key=lambda entry: entry.score, reverse=True)
+    if not entries:
+        image_bytes = _render_text_image(
+            "아직 등록된 점수가 없습니다.",
+            size=(520, 180),
+        )
+        return Response(image_bytes, mimetype="image/png")
+
+    lines = ["랭킹 TOP 10"]
+    for idx, entry in enumerate(entries[:10], start=1):
+        lines.append(f"{idx}. {entry.username} - {entry.score}점")
+    ranking_text = "\n".join(lines)
+    image_bytes = _render_text_image(
+        ranking_text,
+        size=(520, 320),
+        font_size=20,
+        multiline=True,
+    )
     return Response(image_bytes, mimetype="image/png")
 
 
