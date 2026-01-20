@@ -153,29 +153,6 @@ def ranking():
     )
 
 
-@app.get("/ranking")
-def ranking():
-    entries = sorted(SCORES.values(), key=lambda entry: entry.score, reverse=True)
-    if not entries:
-        image_bytes = _render_text_image(
-            "아직 등록된 점수가 없습니다.",
-            size=(520, 180),
-        )
-        return Response(image_bytes, mimetype="image/png")
-
-    lines = ["랭킹 TOP 10"]
-    for idx, entry in enumerate(entries[:10], start=1):
-        lines.append(f"{idx}. {entry.username} - {entry.score}점")
-    ranking_text = "\n".join(lines)
-    image_bytes = _render_text_image(
-        ranking_text,
-        size=(520, 320),
-        font_size=20,
-        multiline=True,
-    )
-    return Response(image_bytes, mimetype="image/png")
-
-
 @app.get("/health")
 def health():
     return jsonify({"ok": True})
