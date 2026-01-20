@@ -122,8 +122,7 @@ def log_score(username: str, score: int, hash_value: str):
     now = datetime.now(KST)
 
     if not is_valid_hash(username, score, hash_value, salt, now=now):
-        image_bytes = _render_text_image("해시 검증이 틀렸습니다")
-        return Response(image_bytes, mimetype="image/png")
+        return _render_text_response("해시 검증이 틀렸습니다")
 
     current = SCORES.get(username)
     if current is None or score > current.score:
