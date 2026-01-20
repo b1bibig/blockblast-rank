@@ -116,13 +116,33 @@ def _render_text_response(
     return Response(image_bytes, mimetype=mimetype)
 
 
+def _render_text_svg_response(
+    text: str,
+    *,
+    size: Tuple[int, int] = (520, 140),
+    background_color: Tuple[int, int, int] = (245, 245, 245),
+    text_color: Tuple[int, int, int] = (33, 33, 33),
+    font_size: int = 24,
+    multiline: bool = False,
+) -> Response:
+    svg_bytes = _render_text_svg(
+        text,
+        size=size,
+        background_color=background_color,
+        text_color=text_color,
+        font_size=font_size,
+        multiline=multiline,
+    )
+    return Response(svg_bytes, mimetype="image/svg+xml")
+
+
 @app.get("/<username>/<int:score>/<hash_value>")
 def log_score(username: str, score: int, hash_value: str):
     salt = app.config.get("HASH_SALT", "CHANGE_ME")
     now = datetime.now(KST)
 
     if not is_valid_hash(username, score, hash_value, salt, now=now):
-        return _render_text_response("해시 검증이 틀렸습니다")
+        return _render_text_svg_response("해시 검증이 틀렸습니다")
 
     current = SCORES.get(username)
     if current is None or score > current.score:
@@ -151,29 +171,6 @@ def ranking():
         font_size=20,
         multiline=True,
     )
-
-
-@app.get("/ranking")
-def ranking():
-    entries = sorted(SCORES.values(), key=lambda entry: entry.score, reverse=True)
-    if not entries:
-        image_bytes = _render_text_image(
-            "아직 등록된 점수가 없습니다.",
-            size=(520, 180),
-        )
-        return Response(image_bytes, mimetype="image/png")
-
-    lines = ["랭킹 TOP 10"]
-    for idx, entry in enumerate(entries[:10], start=1):
-        lines.append(f"{idx}. {entry.username} - {entry.score}점")
-    ranking_text = "\n".join(lines)
-    image_bytes = _render_text_image(
-        ranking_text,
-        size=(520, 320),
-        font_size=20,
-        multiline=True,
-    )
-    return Response(image_bytes, mimetype="image/png")
 
 
 @app.get("/health")
